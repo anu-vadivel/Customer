@@ -1,0 +1,65 @@
+on:
+  push:
+    branches:
+      - '*'
+
+env:
+  SOLUTION_FILE: './src/{{cookiecutter.ProjectName}}.sln'
+
+jobs:
+  build-and-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: 6.0.x
+    - name: Install dependencies
+      run: dotnet restore ${{ env.SOLUTION_FILE }}
+
+    - name: Build
+      run: dotnet build ${{ env.SOLUTION_FILE }}  --configuration Release --no-restore
+      
+    - name: Test
+      working-directory: ./tools/codeCoverage
+      run: |
+         chmod +x ./run-tests-with-coverage-ci.sh
+         ./run-tests-with-coverage-ci.sh
+      shell: bash
+
+    - name: Run Code Coverage
+      uses: danielpalme/ReportGenerator-GitHub-Action@5.1.12
+      with:
+        reports: './tmp/framework-unit-test-results/coverage/coverage.opencover.xml' 
+        targetdir: './tmp/coverage/reports'
+        reporttypes: 'HtmlInline;Cobertura;Badges;Latex;'
+        verbosity: 'Info'
+        tag: '${{ github.run_number }}_${{ github.run_id }}'
+
+    - name: Archive Code Coverage Report
+      uses: actions/upload-artifact@v2
+      with:
+        name: code-coverage-report
+        path: ./tmp/coverage/reports
+        
+    - name: trufflehog-actions-scan
+      uses: edplato/trufflehog-actions-scan@master
+      with:
+        scanArguments: "--regex --entropy=False --max_depth=5 --exclude_paths tools/trufflehog/trufflehog_exclude_patterns.txt"
+
+    - name: Run Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      id: Depcheck
+      with:
+        project: 'test'
+        path: '.'
+        format: 'HTML'
+
+    - name: Archive Dependency Check Report
+      uses: actions/upload-artifact@master
+      with:
+        name: Depcheck report
+        path: ${{github.workspace}}/reports
